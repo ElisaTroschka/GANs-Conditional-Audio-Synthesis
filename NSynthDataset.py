@@ -26,7 +26,7 @@ class NSynthDataset(Dataset):
         label = torch.tensor([self.annot[self.fnames[i]][feature] for feature in self.labeling])
 
         if self.mel:
-            y = melspectrogram(y, sr=sr)
+            y = melspectrogram(y=y, sr=sr)
 
         return torch.tensor(y), label
         
