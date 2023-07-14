@@ -17,7 +17,7 @@ def train(train_set, batch_size, lr,  epochs, z_size, dg_ratio=5, verbose=50):
 
     # Loading the data
     print('Loading data...')
-    trainloader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
+    trainloader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True)
 
     # Creating a fixed noise vectors
     fixed_z = torch.rand(batch_size, z_size, device=device)
@@ -36,6 +36,7 @@ def train(train_set, batch_size, lr,  epochs, z_size, dg_ratio=5, verbose=50):
 
     # Creating loss function
     criterion = nn.BCEWithLogitsLoss()
+    
 
     # Train loop
     for epoch in range(epochs):
@@ -59,7 +60,9 @@ def train(train_set, batch_size, lr,  epochs, z_size, dg_ratio=5, verbose=50):
                 D.zero_grad()
                 # Training with real batch
                 y_r = torch.full((batch_size,), 1, dtype=torch.float, device=device)
+                #print(f"real_in: {x.shape}")
                 real = D(x, cond)
+                #print(f"real_out: {real.shape}")
                 loss_D_real = criterion(real, y_r)
                 loss_D_real.backward()
 

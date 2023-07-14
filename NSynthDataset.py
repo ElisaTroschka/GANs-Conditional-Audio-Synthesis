@@ -62,7 +62,7 @@ class NSynthDataset(Dataset):
         self.y_size = self.sampling_rate * self.duration if not self.mel else (128, 94)
 
     
-    def _balance_data(self, annot, min=50, max=51, seed=102):
+    def _balance_data(self, annot, min=1000, max=2000, seed=102):
         val_counts = annot.value_counts('instrument_class_str')
         under_min = val_counts[val_counts < min].index
         over_max = val_counts[val_counts > max].index
