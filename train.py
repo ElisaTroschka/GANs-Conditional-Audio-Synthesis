@@ -57,7 +57,7 @@ def train(train_set, batch_size, lr,  epochs, z_size, dg_ratio=5, verbose=50):
             # Training the discriminator: maximising log(D(x)) + log(1 - D(G(x))
             ####################################################################
             for _ in range(dg_ratio):
-                D.zero_grad()
+                D_optim.zero_grad()
                 # Training with real batch
                 y_r = torch.full((batch_size,), 1, dtype=torch.float, device=device)
                 #print(f"real_in: {x.shape}")
@@ -67,7 +67,7 @@ def train(train_set, batch_size, lr,  epochs, z_size, dg_ratio=5, verbose=50):
                 loss_D_real.backward()
 
                 # Training with fake batch
-                #D.zero_grad()
+                D_optim.zero_grad()
                 z = torch.rand(batch_size, z_size, device=device)
                 y_f = torch.full((batch_size,), 0, dtype=torch.float, device=device)
                 G_out = G(z, cond)
@@ -81,7 +81,7 @@ def train(train_set, batch_size, lr,  epochs, z_size, dg_ratio=5, verbose=50):
             ####################################################################
             # Training the generator: maximising log(D(G(x))
             ####################################################################
-            G.zero_grad()
+            G_optim.zero_grad()
             y = torch.full((batch_size,), 1, dtype=torch.float, device=device)
             output = D(G_out, cond)
             loss_G = criterion(output, y)
