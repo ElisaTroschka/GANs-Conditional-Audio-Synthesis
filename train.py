@@ -6,10 +6,7 @@ from tqdm import tqdm
 from WaveGAN import WaveGANGenerator, WaveGANDiscriminator
 
 
-def train(train_set, batch_size, lr,  epochs, z_size, dg_ratio=5, verbose=50):
-
-    G_losses = []
-    D_losses = []
+def train(train_set, batch_size, lr,  epochs, z_size, d_updates=5, g_updates=1, verbose=1, val_set=None, ph=0):
 
     # Setting the device
     device = torch.device('cuda' if cuda.is_available() else 'cpu')
@@ -18,8 +15,10 @@ def train(train_set, batch_size, lr,  epochs, z_size, dg_ratio=5, verbose=50):
     # Loading the data
     print('Loading data...')
     trainloader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True)
+    if val_set is not None:
+        valloader = DataLoader(val_set, batch_size=batch_size, drop_last=True)
 
-    # Creating a fixed noise vectors
+    # Creating a fixed noise vectors for validation
     fixed_z = torch.rand(batch_size, z_size, device=device)
 
 
@@ -27,7 +26,7 @@ def train(train_set, batch_size, lr,  epochs, z_size, dg_ratio=5, verbose=50):
     print('Creating WaveGAN...')
     G = WaveGANGenerator(z_size, train_set.label_size, train_set.y_size, train_set.sampling_rate, train_set.duration).to(device)
     print(G)
-    D = WaveGANDiscriminator(train_set.y_size, train_set.label_size).to(device)
+    D = WaveGANDiscriminator(train_set.y_size, train_set.label_size, phaseshuffle_rad=ph).to(device)
     print(D)
 
     # Creating optimizers
@@ -35,9 +34,11 @@ def train(train_set, batch_size, lr,  epochs, z_size, dg_ratio=5, verbose=50):
     D_optim = optim.Adam(D.parameters(), lr, betas=(0.5, 0.9))
 
     # Creating loss function
-    criterion = nn.BCEWithLogitsLoss()
+    criterion = nn.BCELoss()
     
-
+    G_losses = []
+    D_losses = []
+    
     # Train loop
     for epoch in range(epochs):
         if epoch % verbose == 0:
@@ -46,9 +47,13 @@ def train(train_set, batch_size, lr,  epochs, z_size, dg_ratio=5, verbose=50):
             a = torch.cuda.memory_allocated(0)
             f = r-a  # free inside reserved
             print(f'\033[94mtotal_memory: {t}, available_memory: {f}\033[0m')
-            
+        
+                    
         loss_G_batch = []
         loss_D_batch = []
+        TP = 0
+        TN = 0
+        
         for i, data in enumerate(tqdm(trainloader, leave=True)):
 
             x, cond = data
@@ -56,47 +61,80 @@ def train(train_set, batch_size, lr,  epochs, z_size, dg_ratio=5, verbose=50):
             ####################################################################
             # Training the discriminator: maximising log(D(x)) + log(1 - D(G(x))
             ####################################################################
-            for _ in range(dg_ratio):
+            for i in range(d_updates):
                 D_optim.zero_grad()
-                # Training with real batch
-                y_r = torch.full((batch_size,), 1, dtype=torch.float, device=device)
-                #print(f"real_in: {x.shape}")
+                
+                # Real batch forward pass
+                target_r = torch.full((batch_size,), 1, dtype=torch.float, device=device)
                 real = D(x, cond)
-                #print(f"real_out: {real.shape}")
-                loss_D_real = criterion(real, y_r)
-                loss_D_real.backward()
 
-                # Training with fake batch
-                D_optim.zero_grad()
+                # Fake batch forward pass
                 z = torch.rand(batch_size, z_size, device=device)
-                y_f = torch.full((batch_size,), 0, dtype=torch.float, device=device)
+                target_f = torch.full((batch_size,), 0, dtype=torch.float, device=device)
                 G_out = G(z, cond)
                 fake = D(G_out, cond)
-                loss_D_fake = criterion(fake.detach(), y_f)
-                loss_D_fake.requires_grad = True
-                loss_D_fake.backward()
-                loss_D = loss_D_real + loss_D_fake
+                
+                # Backward pass
+                pred = torch.cat((real, fake))
+                target = torch.cat((target_r, target_f))
+                loss_D = criterion(pred, target)
+                loss_D.backward()
+                
                 D_optim.step()
-
+                
+                # TP and TN of the last iteration to compute train set accuracy
+                if i == d_updates - 1:
+                    TP += torch.round(real).sum()
+                    TN += torch.round(fake).logical_not().sum()
+                    
             ####################################################################
             # Training the generator: maximising log(D(G(x))
             ####################################################################
-            G_optim.zero_grad()
-            y = torch.full((batch_size,), 1, dtype=torch.float, device=device)
-            output = D(G_out, cond)
-            loss_G = criterion(output, y)
-            loss_G.backward()
-            G_optim.step()
+            for _ in range(g_updates):
+                G_optim.zero_grad()
+                z = torch.rand(batch_size, z_size, device=device)
+                y = torch.full((batch_size,), 1, dtype=torch.float, device=device)
+                
+                # Repeat forward pass?
+                output = D(G(z, cond), cond)
+                loss_G = criterion(output, y)
+                loss_G.backward()
+                G_optim.step()
 
             loss_G_batch.append(loss_G)
             loss_D_batch.append(loss_D)
+        
+        
+        train_acc = (TP + TN) / (2 * trainloader.__len__() * batch_size)
+        
+#        if val_set is not None:
+#            D.eval()
+#            G.eval()
+#            TP = 0
+#            TN = 0
+#            for (x, cond) in tqdm(valloader):
+#                x, cond = x.to(device), cond.to(device)
+#                val_real = D(x, cond)
+#                TP += torch.round(val_real).sum()
+#                
+#                val_fake = G(fixed_z, cond)
+#                val_fake = D(val_fake, cond)
+#                TN += torch.round(val_fake).logical_not().sum()
+#            
+#            val_acc = (TP + TN) / (2 * val_set.__len__())
+#        else:
+#            val_acc = None
+            
 
         # Output
         loss_G_epoch = torch.mean(torch.tensor(loss_G_batch))
         loss_D_epoch = torch.mean(torch.tensor(loss_D_batch))
 
         if epoch % verbose == 0:
-            print(f'\n\033[1mEPOCH {epoch + 1}/{epochs}:\033[0m Generator loss: {loss_G_epoch.item()}, Discriminator loss: {loss_D_epoch.item()}')
+            if val_set:
+                            print(f'\n\033[1mEPOCH {epoch + 1}/{epochs}:\033[0m Generator loss: {loss_G_epoch.item()}, Discriminator loss: {loss_D_epoch.item()}, Train accuracy: {train_acc}, Validation accuracy: {val_acc}')
+            else:
+                print(f'\n\033[1mEPOCH {epoch + 1}/{epochs}:\033[0m Generator loss: {loss_G_epoch.item()}, Discriminator loss: {loss_D_epoch.item()}, Train accuracy: {train_acc}')
 
         G_losses.append(loss_G_epoch)
         D_losses.append(loss_D_epoch)
