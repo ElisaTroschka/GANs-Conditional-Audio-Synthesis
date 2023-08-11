@@ -7,6 +7,7 @@ import sys
 from sklearn.preprocessing import OneHotEncoder
 from librosa.feature import melspectrogram
 from torch.utils.data import Dataset
+from src.utils import midi_to_hz
 
 
 class NSynthDataset(Dataset):
@@ -25,15 +26,25 @@ class NSynthDataset(Dataset):
         
     """
 
-    def __init__(self, data_path='data/', stage='train', mel=False, sampling_rate=16000, duration=3, limit=False, min_class_count=2000, max_class_count=2500, cond_classes=None):
+    def __init__(self, 
+                 data_path='data/', 
+                 stage='train', 
+                 mel=False, 
+                 sampling_rate=16000, 
+                 duration=3, 
+                 min_class_count=2000, 
+                 max_class_count=2500, 
+                 cond_classes=None, 
+                 pitched_z=False,
+                 z_size=1000
+                ):
+        
         super(NSynthDataset, self).__init__()
-
         self.stage = stage
         self.data_path = f'{data_path}nsynth-{stage}'
         self.mel = mel
         self.sampling_rate = sampling_rate
         self.duration = duration
-        self.limit = limit
 
         if stage not in ('train', 'test', 'valid'):
             raise ValueError('stage must be one of \'train\', \'test\', \'valid\'')
@@ -43,6 +54,8 @@ class NSynthDataset(Dataset):
         self.min_class_count = min_class_count
         self.max_class_count = max_class_count
         self.cond_classes = cond_classes
+        self.pitched_z = pitched_z
+        self.z_size = z_size
 
         self.json = json.load(open(f'{self.data_path}/examples.json'))
         self._preprocess_dataset()
@@ -50,24 +63,32 @@ class NSynthDataset(Dataset):
             
 
     def __len__(self):
-        return len(self.fnames) if self.limit == False else self.limit
+        return len(self.fnames)
 
+    
     def __getitem__(self, i):
         # Loading audio file and normalizing
         wpath = f'{self.data_path}/audio/{self.fnames[i]}.wav'
         y, sr = librosa.load(wpath, sr=self.sampling_rate, duration=self.duration)
         y = y / max(np.abs(y))
-
         
-        # constructing label
-        pitch = torch.tensor(self.annot.loc[self.fnames[i], 'pitch']).unsqueeze(0)
-        instr_class = torch.tensor(self.annot.loc[self.fnames[i], 'instrument_class'])
-        label = torch.cat((pitch, instr_class))
-
+        # constructing mel spec
         if self.mel:
             y = melspectrogram(y=y, sr=sr)
-
-        return torch.tensor(y), label
+        
+        # constructing label
+        instr_class = torch.tensor(self.annot.loc[self.fnames[i], 'instrument_class'])
+        
+        if self.pitched_z:
+            label = instr_class
+            z = librosa.tone(midi_to_hz(self.get_pitch(i)), sr=self.sampling_rate, length=self.z_size).type(torch.float32)
+        else:
+            pitch = torch.tensor(self.get_pitch(i)).unsqueeze(0)
+            label = torch.cat((pitch, instr_class))
+            z = torch.rand(batch_size, self.z_size)
+            
+        return torch.tensor(y), label, z
+    
 
     def _preprocess_dataset(self):
         annot = pd.DataFrame.from_dict(self.json, orient='index')
@@ -95,7 +116,9 @@ class NSynthDataset(Dataset):
         annot = pd.concat((annot, encoded_df), axis=1)
 
         self.annot = annot
-        self.label_size = 1 + self.annot['instrument_class_str'].nunique()
+        self.label_size = self.annot['instrument_class_str'].nunique()
+        if not self.pitched_z:
+            self.label_size += 1
         self.y_size = self.sampling_rate * self.duration if not self.mel else (128, 94)
 
     
@@ -121,10 +144,11 @@ class NSynthDataset(Dataset):
                     tot_to_drop = len(cls_indices) - max
                     indices_to_drop = np.random.choice(cls_indices, size=tot_to_drop, replace=False)
                     annot = annot.drop(indices_to_drop)
-                    
-            #annot = annot[annot['pitch'] == 72]
-
         else:
             annot = annot[annot['instrument_class_str'].isin(self.cond_classes[0])]
             
         return annot
+    
+    
+    def get_pitch(self, i):
+        return torch.tensor(self.annot.loc[self.fnames[i], 'pitch']).unsqueeze(0)

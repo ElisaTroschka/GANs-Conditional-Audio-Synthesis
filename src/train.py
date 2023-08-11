@@ -3,6 +3,10 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch import nn, cuda, optim
 from tqdm import tqdm
+import librosa
+from IPython.display import Audio
+from IPython.core.display import display
+
 
 from src.WaveGAN import WaveGANGenerator, WaveGANDiscriminator
 from src.utils import flip_random_elements
@@ -20,7 +24,20 @@ def train(train_set,
           val_set=None, 
           ph=0, 
           loss='minimax', 
-          save_epochs=5):
+          save_epochs=5,
+          save_dir='users/adcy353/GANs-Conditional-Audio-Synthesis/models/',
+          pretr_epochs=0
+         ):
+    
+    # Saving training params
+    if pretr_epochs == 0:
+        print('Saving train params...')
+        with open(f'{save_dir}train_params.txt', 'w') as f:
+            for arg in ('batch_size', 'D_lr', 'G_lr', 'epochs', 'z_size', 'd_updates', 'g_updates', 'flip_prob', 'ph', 'loss'):
+                f.write(f'{arg}: {locals()[arg]}\n')
+        f.close()
+                
+                
 
     # Setting the device
     device = torch.device('cuda' if cuda.is_available() else 'cpu')
@@ -31,24 +48,29 @@ def train(train_set,
     trainloader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True)
     if val_set is not None:
         valloader = DataLoader(val_set, batch_size=batch_size, drop_last=True)
-
+        
     # Creating a fixed noise vectors for validation
     fixed_z = torch.rand(batch_size, z_size, device=device)
-
+    
     # Creating the generator and discriminator
     print('Creating WaveGAN...')
     G = WaveGANGenerator(z_size, train_set.label_size, train_set.y_size, train_set.sampling_rate, train_set.duration).to(device)
     print(G)
     D = WaveGANDiscriminator(train_set.y_size, train_set.label_size, phaseshuffle_rad=ph).to(device)
     print(D)
+    
+    if pretr_epochs != 0:
+        print('Loading state dict...')
+        G.load_state_dict(torch.load(f'{save_dir}G_{G_lr}-{g_updates}-{pretr_epochs - 1}.pt'))
+        D.load_state_dict(torch.load(f'{save_dir}D_{D_lr}-{d_updates}-{pretr_epochs - 1}.pt'))
 
     # Creating optimizers
     G_optim = optim.Adam(G.parameters(), G_lr, betas=(0.5, 0.9))
     D_optim = optim.Adam(D.parameters(), D_lr, betas=(0.5, 0.9))
     
     # creating lr scheduler
-    #G_scheduler = optim.lr_scheduler.StepLR(G_optim, step_size=20, gamma=0.1)
-    #D_scheduler = optim.lr_scheduler.StepLR(D_optim, step_size=20, gamma=0.1)
+    #G_scheduler = optim.lr_scheduler.StepLR(G_optim, step_size=50, gamma=0.1)
+    #D_scheduler = optim.lr_scheduler.StepLR(D_optim, step_size=50, gamma=0.1)
 
     # Creating loss function
     if loss == 'minimax':
@@ -76,11 +98,12 @@ def train(train_set,
         loss_D_batch = []
         TP = 0
         TN = 0
-        
+        G.train()
+        D.train()
         for i, data in enumerate(tqdm(trainloader, leave=True)):
 
-            x, cond = data
-            x, cond = x.to(device), cond.to(device)
+            x, cond, z_pitched = data
+            x, cond, z_pitched = x.to(device), cond.to(device), z_pitched.to(device)
             ####################################################################
             # Training the discriminator: maximising log(D(x)) + log(1 - D(G(x))
             ####################################################################
@@ -93,7 +116,8 @@ def train(train_set,
                 real = D(x, cond)
 
                 # Fake batch forward pass
-                z = torch.rand(batch_size, z_size, device=device)
+                z_noise = torch.rand(batch_size, z_size, device=device)
+                z = z_pitched + z_noise
                 target_f = torch.full((batch_size,), 0, dtype=torch.float, device=device)
                 G_out = G(z, cond)
                 fake = D(G_out, cond)
@@ -124,7 +148,7 @@ def train(train_set,
             D.eval()
             for _ in range(g_updates):
                 G_optim.zero_grad()
-                z = torch.rand(batch_size, z_size, device=device)
+                z = z_pitched + torch.rand(batch_size, z_size, device=device)
                 y = torch.full((batch_size,), 1, dtype=torch.float, device=device)
                 output = D(G(z, cond), cond)
                 
@@ -151,13 +175,15 @@ def train(train_set,
 
         if epoch % verbose == 0:
             print(get_output_str(epoch, epochs, loss_G_epoch.item(), loss_D_epoch.item(), train_acc))
+            
+        display(get_sample(42, train_set, G))
 
         G_losses.append(loss_G_epoch)
         D_losses.append(loss_D_epoch)
         
         if epoch % save_epochs == 0 or epoch == epochs - 1:
-            torch.save(G.state_dict(), f'users/adcy353/GANs-Conditional-Audio-Synthesis/models/G_{G_lr}-{g_updates}-{epoch}.pt')
-            torch.save(D.state_dict(), f'users/adcy353/GANs-Conditional-Audio-Synthesis/models/D_{D_lr}-{d_updates}-{epoch}.pt')
+            torch.save(G.state_dict(), f'{save_dir}G_{G_lr}-{g_updates}-{epoch + pretr_epochs}.pt')
+            torch.save(D.state_dict(), f'{save_dir}D_{D_lr}-{d_updates}-{epoch + pretr_epochs}.pt')
     
     return G_losses, D_losses, G, D
 
@@ -168,3 +194,12 @@ def get_output_str(epoch, epochs, g_loss, d_loss, train_acc, val_acc=None):
     else:
         return f'\n\033[1mEPOCH {epoch + 1}/{epochs}:\033[0m Generator loss: {g_loss:.5f}, Discriminator loss: {d_loss:.5f}, Train accuracy: {train_acc:.5f}'
 
+def get_sample(i, train_set, G):
+    w, l, z = train_set.__getitem__(i)
+    G.eval()
+    s = G.forward(z.unsqueeze(0).to(torch.device('cuda')), l.unsqueeze(0).to(torch.device('cuda')))
+    s.to(torch.device('cpu'))
+    s = s.detach().cpu()
+    return Audio(s, rate=train_set.sampling_rate)
+    
+    

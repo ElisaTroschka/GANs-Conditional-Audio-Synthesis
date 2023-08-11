@@ -20,14 +20,15 @@ class WaveGANGenerator(nn.Module):
         if duration <= 0:
             raise ValueError("Duration must be greater than 0.")
         self.fc = nn.Linear(self.in_dim + self.cond_dim, 1024*16)
+        self.avgpool = nn.AdaptiveAvgPool1d(self.slice_len)
         self.deconv = nn.Sequential(
-            nn.ConvTranspose1d(1024, 512, kernel_size, stride=4, padding=11, output_padding=1),#//2, bias=True),
+            nn.ConvTranspose1d(1024, 512, kernel_size, stride=4, padding=11, output_padding=1, bias=True),
             nn.ReLU(),
-            nn.ConvTranspose1d(512, 256, kernel_size, stride=4, padding=11, output_padding=1),#//2, bias=True),
+            nn.ConvTranspose1d(512, 256, kernel_size, stride=4, padding=11, output_padding=1, bias=True),
             nn.ReLU(),
-            nn.ConvTranspose1d(256, 128, kernel_size, stride=4, padding=11, output_padding=1),#//2, bias=True),
+            nn.ConvTranspose1d(256, 128, kernel_size, stride=4, padding=11, output_padding=1, bias=True),
             nn.ReLU(),
-            nn.ConvTranspose1d(128, 64, kernel_size, stride=4, padding=11, output_padding=1),#, bias=True),
+            nn.ConvTranspose1d(128, 64, kernel_size, stride=4, padding=11, output_padding=1, bias=True),
             nn.ReLU(),
             nn.ConvTranspose1d(64, in_ch, kernel_size, stride=4, padding=11, output_padding=1),
             nn.Tanh()
@@ -38,6 +39,7 @@ class WaveGANGenerator(nn.Module):
         output = torch.cat([x, cond], dim=1)
         output = self.fc(output).view(-1, 1024, 16)
         output = self.deconv(output)
+        output = self.avgpool(output)
         output = output.squeeze()
         return output
 
