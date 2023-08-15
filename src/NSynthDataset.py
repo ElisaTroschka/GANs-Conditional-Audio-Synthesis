@@ -74,7 +74,7 @@ class NSynthDataset(Dataset):
         
         # constructing mel spec
         if self.mel:
-            y = melspectrogram(y=y, sr=sr)
+            y = melspectrogram(y=y, sr=sr, n_fft=1024, hop_length=128, n_mels=128)
         
         # constructing label
         instr_class = torch.tensor(self.annot.loc[self.fnames[i], 'instrument_class'])
@@ -83,9 +83,9 @@ class NSynthDataset(Dataset):
             label = instr_class
             z = librosa.tone(midi_to_hz(self.get_pitch(i)), sr=self.sampling_rate, length=self.z_size).type(torch.float32)
         else:
-            pitch = torch.tensor(self.get_pitch(i)).unsqueeze(0)
+            pitch = torch.tensor(self.get_pitch(i))#.unsqueeze(0)
             label = torch.cat((pitch, instr_class))
-            z = torch.rand(batch_size, self.z_size)
+            z = torch.zeros(self.z_size)
             
         return torch.tensor(y), label, z
     
@@ -97,7 +97,8 @@ class NSynthDataset(Dataset):
         annot.drop(columns=['instrument', 'instrument_str', 'sample_rate'])
 
         # Removing samples with pitch < 21 or > 108
-        to_keep = np.logical_and((21 < annot['pitch']), (annot['pitch'] < 108))
+        #to_keep = np.logical_and((21 < annot['pitch']), (annot['pitch'] < 108))
+        to_keep = np.logical_and((40 < annot['pitch']), (annot['pitch'] < 80))
         annot = annot[to_keep]
 
         # Redefining instrument classes to include both source and family
@@ -119,7 +120,7 @@ class NSynthDataset(Dataset):
         self.label_size = self.annot['instrument_class_str'].nunique()
         if not self.pitched_z:
             self.label_size += 1
-        self.y_size = self.sampling_rate * self.duration if not self.mel else (128, 94)
+        self.y_size = self.sampling_rate * self.duration if not self.mel else 128
 
     
     def _balance_data(self, annot, seed=102):

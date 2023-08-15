@@ -20,7 +20,7 @@ class WaveGANGenerator(nn.Module):
         if duration <= 0:
             raise ValueError("Duration must be greater than 0.")
         self.fc = nn.Linear(self.in_dim + self.cond_dim, 1024*16)
-        self.avgpool = nn.AdaptiveAvgPool1d(self.slice_len)
+        #self.avgpool = nn.AdaptiveAvgPool1d(self.slice_len)
         self.deconv = nn.Sequential(
             nn.ConvTranspose1d(1024, 512, kernel_size, stride=4, padding=11, output_padding=1, bias=True),
             nn.ReLU(),
@@ -39,14 +39,15 @@ class WaveGANGenerator(nn.Module):
         output = torch.cat([x, cond], dim=1)
         output = self.fc(output).view(-1, 1024, 16)
         output = self.deconv(output)
-        output = self.avgpool(output)
+        #output = self.avgpool(output)
         output = output.squeeze()
+        output = self.adjust_output_length(output)
         return output
 
     def adjust_output_length(self, output):
-        if output.size(-1) != self.slice_len:
-            output = output[:, :, :self.slice_len]
-        return
+        if output.shape[-1] != self.slice_len:
+            output = output[..., :self.slice_len]
+        return output
 
 
 class WaveGANDiscriminator(nn.Module):
@@ -54,7 +55,7 @@ class WaveGANDiscriminator(nn.Module):
         super(WaveGANDiscriminator, self).__init__()
 
         self.lrelu = nn.LeakyReLU(0.2)
-        #self.dropout = nn.Dropout(0.2)
+        self.dropout = nn.Dropout(0.2)
         self.phaseshuffle_rad = phaseshuffle_rad
         
         layers = [nn.Conv1d(64*(2**i), 64*(2**(i+1)), kernel_len, stride=4, padding=11, bias=True) for i in range(4)]
@@ -73,7 +74,7 @@ class WaveGANDiscriminator(nn.Module):
         for layer in self.conv_layers:
             output = layer(output)
             output = self.lrelu(output)
-            #output = self.dropout(output)
+            output = self.dropout(output)
             output = self._apply_phase_shuffle(output, self.phaseshuffle_rad)
         
         output = output.reshape(-1, 8192)
