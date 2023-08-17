@@ -33,6 +33,14 @@ class WaveGANGenerator(nn.Module):
             nn.ConvTranspose1d(64, in_ch, kernel_size, stride=4, padding=11, output_padding=1),
             nn.Tanh()
         )
+        self.apply(self.init_weights)
+        
+    
+    def init_weights(self, m):
+        if isinstance(m, (nn.Conv1d, nn.ConvTranspose1d, nn.Linear)):
+            init.xavier_normal_(m.weight)
+            if m.bias is not None:
+                init.constant_(m.bias, 0)
 
 
     def forward(self, x, cond):
@@ -67,7 +75,15 @@ class WaveGANDiscriminator(nn.Module):
 
         self.conv_layers = nn.Sequential(*layers)
         self.linear = nn.Linear(8192, 1)
-        #self.sigmoid = nn.Sigmoid()
+        self.apply(self.init_weights)
+        
+
+    def init_weights(self, m):
+        if isinstance(m, (nn.Conv1d, nn.Linear)):
+            init.xavier_normal_(m.weight)
+            if m.bias is not None:
+                init.constant_(m.bias, 0)
+                
 
     def forward(self, x, cond):
         output = torch.cat([x, cond], dim=1).unsqueeze(1)
@@ -76,12 +92,10 @@ class WaveGANDiscriminator(nn.Module):
             output = self.lrelu(output)
             output = self.dropout(output)
             output = self._apply_phase_shuffle(output, self.phaseshuffle_rad)
-        
         output = output.reshape(-1, 8192)
         output = self.linear(output).squeeze()
-        #output = self.sigmoid(output)
-
         return output
+    
 
     def _apply_phase_shuffle(self, x, rad, pad_type='reflect'):
         if self.phaseshuffle_rad > 0:
@@ -92,5 +106,4 @@ class WaveGANDiscriminator(nn.Module):
             x = nn.functional.pad(x, (pad_l, pad_r), mode=pad_type)
             x = x[..., pad_l:pad_l + x_len]
             x.view(b, channels, x_len)
-
         return x

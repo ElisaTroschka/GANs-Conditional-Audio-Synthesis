@@ -30,8 +30,8 @@ class NSynthDataset(Dataset):
                  data_path='data/', 
                  stage='train', 
                  mel=False, 
-                 sampling_rate=16000, 
-                 duration=3, 
+                 sampling_rate=8192, 
+                 duration=2, 
                  min_class_count=2000, 
                  max_class_count=2500, 
                  cond_classes=None, 
@@ -85,7 +85,7 @@ class NSynthDataset(Dataset):
         else:
             pitch = torch.tensor(self.get_pitch(i))#.unsqueeze(0)
             label = torch.cat((pitch, instr_class))
-            z = torch.zeros(self.z_size)
+            z = 2 * torch.rand(self.z_size) - 1
             
         return torch.tensor(y), label, z
     

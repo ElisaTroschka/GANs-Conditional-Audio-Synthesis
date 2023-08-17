@@ -4,19 +4,41 @@ from torch.utils.data import DataLoader
 from torch import nn, cuda, optim
 from tqdm import tqdm
 import librosa
+import numpy as np
+import matplotlib.pyplot as plt
+from librosa.feature.inverse import mel_to_audio
 from IPython.display import Audio
 from IPython.core.display import display
 
 
 from src.WaveGAN import WaveGANGenerator, WaveGANDiscriminator
+from src.SpecGAN import SpecGANGenerator, SpecGANDiscriminator
 from src.utils import flip_random_elements
+
+
+def compute_gradient_penalty(D, real_samples, fake_samples, cond, device):
+    alpha = torch.rand(real_samples.size(0), 1, 1, device=device)
+    interpolates = alpha * real_samples + (1 - alpha) * fake_samples
+    interpolates.requires_grad_(True)
+    d_interpolates = D(interpolates, cond)
+    fake = torch.ones_like(d_interpolates, device=device)
+    gradients = torch.autograd.grad(
+        outputs=d_interpolates,
+        inputs=interpolates,
+        grad_outputs=fake,
+        create_graph=True,
+        retain_graph=True,
+        only_inputs=True,
+    )[0]
+    gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+    return gradient_penalty
 
 
 def train(train_set, 
           batch_size, 
           D_lr, G_lr,  
           epochs, 
-          z_size, 
+          z_size,
           d_updates=5, 
           g_updates=1, 
           flip_prob=0, 
@@ -26,14 +48,18 @@ def train(train_set,
           loss='minimax', 
           save_epochs=5,
           save_dir='users/adcy353/GANs-Conditional-Audio-Synthesis/models/',
-          pretr_epochs=0
+          pretr_epochs=0,
+          lambda_gp=10
          ):
+    
+    # Inferring model from data type
+    model = 'SpecGAN' if train_set.mel else 'WaveGAN'
     
     # Saving training params
     if pretr_epochs == 0:
         print('Saving train params...')
         with open(f'{save_dir}train_params.txt', 'w') as f:
-            for arg in ('batch_size', 'D_lr', 'G_lr', 'epochs', 'z_size', 'd_updates', 'g_updates', 'flip_prob', 'ph', 'loss'):
+            for arg in ('batch_size', 'D_lr', 'G_lr', 'epochs', 'z_size', 'd_updates', 'g_updates', 'flip_prob', 'ph', 'loss', 'lambda_gp'):
                 f.write(f'{arg}: {locals()[arg]}\n')
         f.close()
                 
@@ -53,10 +79,17 @@ def train(train_set,
     fixed_z = torch.rand(batch_size, z_size, device=device)
     
     # Creating the generator and discriminator
-    print('Creating WaveGAN...')
-    G = WaveGANGenerator(z_size, train_set.label_size, train_set.y_size, train_set.sampling_rate, train_set.duration).to(device)
+    print(f'Creating {model}...')
+    G, D = None, None
+    if model == 'WaveGAN':
+        G = WaveGANGenerator(z_size, train_set.label_size, train_set.y_size, train_set.sampling_rate, train_set.duration).to(device)
+        D = WaveGANDiscriminator(train_set.y_size, train_set.label_size, phaseshuffle_rad=ph).to(device)
+    elif model == 'SpecGAN':
+        G = SpecGANGenerator(z_size, train_set.label_size, train_set.y_size).to(device)
+        D = SpecGANDiscriminator(train_set.y_size, train_set.label_size, phaseshuffle_rad=ph).to(device)
+    else:
+        raise NotImplementedError('Model must be one of "WaveGAN" or "SpecGAN"')
     print(G)
-    D = WaveGANDiscriminator(train_set.y_size, train_set.label_size, phaseshuffle_rad=ph).to(device)
     print(D)
     
     if pretr_epochs != 0:
@@ -129,13 +162,14 @@ def train(train_set,
                     loss_D = criterion(pred, target)
                     
                 elif loss == 'wasserstein':
-                    loss_D = torch.mean(fake) - torch.mean(real) 
+                    gradient_penalty = compute_gradient_penalty(D, x, G_out.detach(), cond, device)
+                    loss_D = torch.mean(fake) - torch.mean(real) + lambda_gp * gradient_penalty
                     
                 loss_D.backward()
                 D_optim.step()
                 
-                for p in D.parameters():
-                    p.data.clamp_(-0.01, 0.01)
+                #for p in D.parameters():
+                #    p.data.clamp_(-0.01, 0.01)
                 
                 # TP and TN of the last iteration to compute train set accuracy
                 if i == d_updates - 1:
@@ -148,7 +182,7 @@ def train(train_set,
             D.eval()
             for _ in range(g_updates):
                 G_optim.zero_grad()
-                z = z_pitched + torch.rand(batch_size, z_size, device=device)
+                z = z_pitched + (2 * torch.rand(batch_size, z_size, device=device) - 1)
                 y = torch.full((batch_size,), 1, dtype=torch.float, device=device)
                 output = D(G(z, cond), cond)
                 
@@ -160,8 +194,8 @@ def train(train_set,
                 loss_G.backward()
                 G_optim.step()
 
-            loss_G_batch.append(loss_G)
-            loss_D_batch.append(loss_D)
+            loss_G_batch.append(loss_G.item())
+            loss_D_batch.append(loss_D.item())
         
         
         train_acc = (TP + TN) / (2 * trainloader.__len__() * batch_size)
@@ -170,36 +204,59 @@ def train(train_set,
         #D_scheduler.step()
         
         # Output
-        loss_G_epoch = torch.mean(torch.tensor(loss_G_batch))
-        loss_D_epoch = torch.mean(torch.tensor(loss_D_batch))
+        loss_G_epoch = torch.mean(torch.tensor(loss_G_batch)).item()
+        loss_D_epoch = torch.mean(torch.tensor(loss_D_batch)).item()
 
         if epoch % verbose == 0:
-            print(get_output_str(epoch, epochs, loss_G_epoch.item(), loss_D_epoch.item(), train_acc))
-            
-        display(get_sample(42, train_set, G))
+            print(get_output_str(epoch, epochs, loss_G_epoch, loss_D_epoch, train_acc))
+        
+        if model == 'SpecGAN':
+            display_mel_sample(42, train_set, G)
+        display(display_audio_sample(42, train_set, G))
 
         G_losses.append(loss_G_epoch)
         D_losses.append(loss_D_epoch)
         
-        if epoch % save_epochs == 0 or epoch == epochs - 1:
+        if epoch % save_epochs == 0 or epoch == epochs-1:
             torch.save(G.state_dict(), f'{save_dir}G_{G_lr}-{g_updates}-{epoch + pretr_epochs}.pt')
             torch.save(D.state_dict(), f'{save_dir}D_{D_lr}-{d_updates}-{epoch + pretr_epochs}.pt')
+            
+            loss_history_path = f'{save_dir}loss_history-{pretr_epochs}.txt'
+            with open(loss_history_path, 'w') as f:
+                for e, (g_loss, d_loss) in enumerate(zip(G_losses, D_losses)):
+                    f.write(f'Epoch {e + 1}: Generator loss = {g_loss:.5f}, Discriminator loss = {d_loss:.5f}\n')
     
     return G_losses, D_losses, G, D
 
 
 def get_output_str(epoch, epochs, g_loss, d_loss, train_acc, val_acc=None):
     if val_acc:
-        return f'\n\033[1mEPOCH {epoch + 1}/{epochs}:\033[0m Generator loss: {g_loss:.5f}, Discriminator loss: {d_loss:.5f}, Train accuracy: {train_acc:.5f}, Val accuracy: {val_acc:.5f}'
+        return f'\n\033[1mEPOCH {epoch + 1}/{epochs}:\033[0m Generator loss: {g_loss:.1f}, Discriminator loss: {d_loss:.1f}, Train accuracy: {train_acc:.5f}, Val accuracy: {val_acc:.5f}'
     else:
-        return f'\n\033[1mEPOCH {epoch + 1}/{epochs}:\033[0m Generator loss: {g_loss:.5f}, Discriminator loss: {d_loss:.5f}, Train accuracy: {train_acc:.5f}'
+        return f'\n\033[1mEPOCH {epoch + 1}/{epochs}:\033[0m Generator loss: {g_loss:.1f}, Discriminator loss: {d_loss:.1f}, Train accuracy: {train_acc:.5f}'
 
-def get_sample(i, train_set, G):
+    
+def display_audio_sample(i, train_set, G):
     w, l, z = train_set.__getitem__(i)
     G.eval()
     s = G.forward(z.unsqueeze(0).to(torch.device('cuda')), l.unsqueeze(0).to(torch.device('cuda')))
     s.to(torch.device('cpu'))
     s = s.detach().cpu()
+    if train_set.mel:
+        s = mel_to_audio(np.array(s), sr=train_set.sampling_rate, n_fft=1024, hop_length=128)
     return Audio(s, rate=train_set.sampling_rate)
     
     
+def display_mel_sample(i, train_set, G):
+    w, l, z = train_set.__getitem__(i)
+    G.eval()
+    s = G.forward(z.unsqueeze(0).to(torch.device('cuda')), l.unsqueeze(0).to(torch.device('cuda')))
+    s.to(torch.device('cpu'))
+    s = s.detach().cpu()
+    
+    plt.figure(figsize=(5, 3))
+    librosa.display.specshow(librosa.power_to_db(s, ref=np.max),  y_axis='mel', x_axis='time')
+    plt.colorbar(format='%+2.0f dB')
+    plt.title('Mel Spectrogram')
+    plt.tight_layout()
+    plt.show()

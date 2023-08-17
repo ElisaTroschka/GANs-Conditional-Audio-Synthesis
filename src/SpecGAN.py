@@ -1,8 +1,10 @@
 import torch
 import torch.nn as nn
+import torch.nn.init as init
 
 
-class SpecGANGenerator:
+
+class SpecGANGenerator(nn.Module):
     
     def __init__(self, in_dim, cond_dim, out_dim, in_ch=1, kernel_size=5):
         super(SpecGANGenerator, self).__init__()
@@ -12,7 +14,7 @@ class SpecGANGenerator:
         self.in_ch = in_ch
         self.kernel_size = kernel_size
         
-        #self.avgpool = nn.AdaptiveMaxPool2d((128, 128))
+        self.avgpool = nn.AdaptiveMaxPool2d((128, 128))
         self.fc = nn.Linear(self.in_dim + self.cond_dim, 256 * 64)
         self.deconv = nn.Sequential(
             nn.ConvTranspose2d(1024, 512, self.kernel_size, 2, padding=2, output_padding=1, bias=True),
@@ -26,22 +28,26 @@ class SpecGANGenerator:
             nn.ConvTranspose2d(64, self.in_ch, self.kernel_size, 2, padding=2, output_padding=1, bias=True),
             nn.Tanh()
         )
+        self.apply(self.init_weights)
+        
+    
+    def init_weights(self, m):
+        if isinstance(m, (nn.Conv1d, nn.ConvTranspose1d, nn.Linear)):
+            init.xavier_normal_(m.weight)
+            if m.bias is not None:
+                init.constant_(m.bias, 0)
+                
         
     def forward(self, x, cond):
         output = torch.cat([x, cond], dim=1)
         output = self.fc(output).view(-1, 16 * 64, 4, 4)
-        print(output.shape)
-        #output = self.deconv(output)
-        for layer in self.deconv:
-            output = layer(output)
-            print(output.shape)
-        #output = self.avgpool(output)
+        output = self.deconv(output)
+        output = self.avgpool(output)
         output = output.squeeze()
-        print(f'G out shape: {output.shape}')
         return output
 
         
-class SpecGANDiscriminator:
+class SpecGANDiscriminator(nn.Module):
     
     def __init__(self, in_dim, cond_dim, in_ch=1, kernel_size=5, phaseshuffle_rad=0):
         super(SpecGANDiscriminator, self).__init__()
@@ -60,7 +66,15 @@ class SpecGANDiscriminator:
             nn.Conv2d(512, 1024, 5, 2, bias=True)
         )
         self.fc = nn.Linear(1024, 1)
-    # input (n, 1, 128, 128)
+        self.apply(self.init_weights)
+        
+
+    def init_weights(self, m):
+        if isinstance(m, (nn.Conv1d, nn.Linear)):
+            init.xavier_normal_(m.weight)
+            if m.bias is not None:
+                init.constant_(m.bias, 0)
+                
     
     def forward(self, x, cond):
         cond = self.label_fc(cond.type(torch.float32))
@@ -71,10 +85,8 @@ class SpecGANDiscriminator:
             output = self._apply_phase_shuffle(output, self.phaseshuffle_rad)
         output.squeeze_()
         output = self.fc(output)
-        print(f'D out shape: {output.shape}')
         return output
             
-
             
     def _apply_phase_shuffle(self, x, rad, pad_type='reflect'):
         if self.phaseshuffle_rad > 0:
