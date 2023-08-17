@@ -13,7 +13,7 @@ from IPython.core.display import display
 
 from src.WaveGAN import WaveGANGenerator, WaveGANDiscriminator
 from src.SpecGAN import SpecGANGenerator, SpecGANDiscriminator
-from src.utils import flip_random_elements
+from src.utils import flip_random_elements, display_audio_sample, display_mel_sample
 
 
 def compute_gradient_penalty(D, real_samples, fake_samples, cond, device):
@@ -149,7 +149,7 @@ def train(train_set,
                 real = D(x, cond)
 
                 # Fake batch forward pass
-                z_noise = torch.rand(batch_size, z_size, device=device)
+                z_noise = 2 * torch.rand(batch_size, z_size, device=device) - 1
                 z = z_pitched + z_noise
                 target_f = torch.full((batch_size,), 0, dtype=torch.float, device=device)
                 G_out = G(z, cond)
@@ -159,7 +159,7 @@ def train(train_set,
                 if loss == 'minimax':
                     pred = torch.cat((real, fake))
                     target = torch.cat((target_r, target_f))
-                    loss_D = criterion(pred, target)
+                    loss_D = criterion(pred.squeeze(), target)
                     
                 elif loss == 'wasserstein':
                     gradient_penalty = compute_gradient_penalty(D, x, G_out.detach(), cond, device)
@@ -188,7 +188,7 @@ def train(train_set,
                 
                 # backward
                 if loss == 'minimax':
-                    loss_G = criterion(output, y)   
+                    loss_G = criterion(output.squeeze(), y)   
                 elif loss == 'wasserstein':
                     loss_G = -torch.mean(output)
                 loss_G.backward()
@@ -236,27 +236,3 @@ def get_output_str(epoch, epochs, g_loss, d_loss, train_acc, val_acc=None):
         return f'\n\033[1mEPOCH {epoch + 1}/{epochs}:\033[0m Generator loss: {g_loss:.1f}, Discriminator loss: {d_loss:.1f}, Train accuracy: {train_acc:.5f}'
 
     
-def display_audio_sample(i, train_set, G):
-    w, l, z = train_set.__getitem__(i)
-    G.eval()
-    s = G.forward(z.unsqueeze(0).to(torch.device('cuda')), l.unsqueeze(0).to(torch.device('cuda')))
-    s.to(torch.device('cpu'))
-    s = s.detach().cpu()
-    if train_set.mel:
-        s = mel_to_audio(np.array(s), sr=train_set.sampling_rate, n_fft=1024, hop_length=128)
-    return Audio(s, rate=train_set.sampling_rate)
-    
-    
-def display_mel_sample(i, train_set, G):
-    w, l, z = train_set.__getitem__(i)
-    G.eval()
-    s = G.forward(z.unsqueeze(0).to(torch.device('cuda')), l.unsqueeze(0).to(torch.device('cuda')))
-    s.to(torch.device('cpu'))
-    s = s.detach().cpu()
-    
-    plt.figure(figsize=(5, 3))
-    librosa.display.specshow(librosa.power_to_db(s, ref=np.max),  y_axis='mel', x_axis='time')
-    plt.colorbar(format='%+2.0f dB')
-    plt.title('Mel Spectrogram')
-    plt.tight_layout()
-    plt.show()

@@ -1,6 +1,9 @@
 import numpy as np
 import librosa
+from librosa.feature.inverse import mel_to_audio
+from IPython.display import Audio
 import torch
+import matplotlib.pyplot as plt
 
 
 def hz_to_midi(f):
@@ -43,3 +46,28 @@ def flip_random_elements(target_r, flip_prob, device):
     target_r_flipped = target_r * mask
 
     return target_r_flipped
+
+def display_audio_sample(i, train_set, G):
+    w, l, z = train_set.__getitem__(i)
+    G.eval()
+    s = G.forward(z.unsqueeze(0).to(torch.device('cuda')), l.unsqueeze(0).to(torch.device('cuda')))
+    s.to(torch.device('cpu'))
+    s = s.detach().cpu()
+    if train_set.mel:
+        s = mel_to_audio(np.array(s), sr=train_set.sampling_rate, n_fft=1024, hop_length=128)
+    return Audio(s, rate=train_set.sampling_rate)
+    
+    
+def display_mel_sample(i, train_set, G):
+    w, l, z = train_set.__getitem__(i)
+    G.eval()
+    s = G.forward(z.unsqueeze(0).to(torch.device('cuda')), l.unsqueeze(0).to(torch.device('cuda')))
+    s.to(torch.device('cpu'))
+    s = s.detach().cpu()
+    
+    plt.figure(figsize=(5, 3))
+    librosa.display.specshow(librosa.power_to_db(s, ref=np.max),  y_axis='mel', x_axis='time', cmap='magma')
+    plt.colorbar(format='%+2.0f dB')
+    plt.title('Mel Spectrogram')
+    plt.tight_layout()
+    plt.show()

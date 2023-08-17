@@ -70,11 +70,18 @@ class NSynthDataset(Dataset):
         # Loading audio file and normalizing
         wpath = f'{self.data_path}/audio/{self.fnames[i]}.wav'
         y, sr = librosa.load(wpath, sr=self.sampling_rate, duration=self.duration)
-        y = y / max(np.abs(y))
         
-        # constructing mel spec
+        # Constructing mel spec
         if self.mel:
-            y = melspectrogram(y=y, sr=sr, n_fft=1024, hop_length=128, n_mels=128)
+            y = librosa.feature.melspectrogram(y=y, sr=sr, n_fft=1024, hop_length=128, n_mels=128)
+            
+        # Normalize each frequency bin to have zero mean and unit variance
+        y = (y - np.mean(y)) / np.std(y)
+        # Clip to 3 standard deviations
+        y = np.clip(y, -3, 3)
+        # Rescale to [-1, 1]
+        y = (y / 3).clip(-1, 1)
+
         
         # constructing label
         instr_class = torch.tensor(self.annot.loc[self.fnames[i], 'instrument_class'])

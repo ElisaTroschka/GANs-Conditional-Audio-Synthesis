@@ -14,7 +14,7 @@ class SpecGANGenerator(nn.Module):
         self.in_ch = in_ch
         self.kernel_size = kernel_size
         
-        self.avgpool = nn.AdaptiveMaxPool2d((128, 128))
+        #self.avgpool = nn.AdaptiveMaxPool2d((128, 128))
         self.fc = nn.Linear(self.in_dim + self.cond_dim, 256 * 64)
         self.deconv = nn.Sequential(
             nn.ConvTranspose2d(1024, 512, self.kernel_size, 2, padding=2, output_padding=1, bias=True),
@@ -42,7 +42,7 @@ class SpecGANGenerator(nn.Module):
         output = torch.cat([x, cond], dim=1)
         output = self.fc(output).view(-1, 16 * 64, 4, 4)
         output = self.deconv(output)
-        output = self.avgpool(output)
+        #output = self.avgpool(output)
         output = output.squeeze()
         return output
 
