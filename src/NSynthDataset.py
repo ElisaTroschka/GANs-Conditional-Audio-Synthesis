@@ -98,6 +98,9 @@ class NSynthDataset(Dataset):
     
 
     def _preprocess_dataset(self):
+        """
+        Data preprocessing
+        """
         annot = pd.DataFrame.from_dict(self.json, orient='index')
 
         # Dropping irrelevant data

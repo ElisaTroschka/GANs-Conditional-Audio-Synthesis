@@ -17,7 +17,10 @@ from src.utils import flip_random_elements, display_audio_sample, display_mel_sa
 
 
 def compute_gradient_penalty(D, real_samples, fake_samples, cond, device):
-    alpha = torch.rand(real_samples.size(0), 1, 1, device=device)
+    if len(real_samples.shape) == 3:
+        alpha = torch.rand(real_samples.size(0), 1, 1, device=device)
+    else:
+        alpha = torch.rand(real_samples.size(0), 1, device=device)
     interpolates = alpha * real_samples + (1 - alpha) * fake_samples
     interpolates.requires_grad_(True)
     d_interpolates = D(interpolates, cond)
@@ -154,7 +157,7 @@ def train(train_set,
                 target_f = torch.full((batch_size,), 0, dtype=torch.float, device=device)
                 G_out = G(z, cond)
                 fake = D(G_out, cond)
-                
+                            
                 # Backward pass
                 if loss == 'minimax':
                     pred = torch.cat((real, fake))

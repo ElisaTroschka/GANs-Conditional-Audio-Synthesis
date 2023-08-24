@@ -49,7 +49,7 @@ class SpecGANGenerator(nn.Module):
         
 class SpecGANDiscriminator(nn.Module):
     
-    def __init__(self, in_dim, cond_dim, in_ch=1, kernel_size=5, phaseshuffle_rad=0):
+    def __init__(self, in_dim, cond_dim, in_ch=1, kernel_size=5, phaseshuffle_rad=0, out=1):
         super(SpecGANDiscriminator, self).__init__()
         self.in_dim = in_dim
         self.cond_dim = cond_dim
@@ -65,7 +65,7 @@ class SpecGANDiscriminator(nn.Module):
             nn.Conv2d(256, 512, 5, 2, bias=True),
             nn.Conv2d(512, 1024, 5, 2, bias=True)
         )
-        self.fc = nn.Linear(1024, 1)
+        self.fc = nn.Linear(1024, out)
         self.apply(self.init_weights)
         
 

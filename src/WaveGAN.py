@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import torch.nn.init as init
+
 
 class WaveGANGenerator(nn.Module):
     """
@@ -59,7 +61,7 @@ class WaveGANGenerator(nn.Module):
 
 
 class WaveGANDiscriminator(nn.Module):
-    def __init__(self, in_dim, cond_dim, kernel_len=25, in_ch=1, phaseshuffle_rad=0):
+    def __init__(self, in_dim, cond_dim, kernel_len=25, in_ch=1, phaseshuffle_rad=0, out=1):
         super(WaveGANDiscriminator, self).__init__()
 
         self.lrelu = nn.LeakyReLU(0.2)
@@ -74,7 +76,7 @@ class WaveGANDiscriminator(nn.Module):
             layers.append(nn.Conv1d(2048, 4096, kernel_len, stride=4, padding=11))
 
         self.conv_layers = nn.Sequential(*layers)
-        self.linear = nn.Linear(8192, 1)
+        self.linear = nn.Linear(8192, out)
         self.apply(self.init_weights)
         
 
