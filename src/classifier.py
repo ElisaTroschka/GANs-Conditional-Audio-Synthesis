@@ -37,7 +37,7 @@ class MelClassifier(nn.Module):
     
     
 class AudioClassifier(nn.Module):
-    def __init__(self, in_dim, out_dim=1):
+    def __init__(self, out_dim=1):
         super(AudioClassifier, self).__init__()
 
         self.conv_layers = nn.Sequential(
@@ -54,7 +54,7 @@ class AudioClassifier(nn.Module):
             nn.Conv1d(1024, 2048, 25, stride=4, padding=11, bias=True),
             nn.LeakyReLU(0.2)
         )
-        self.linear = nn.Linear(8192, out)
+        self.linear = nn.Linear(8192, out_dim)
         self.apply(self.init_weights)
         
 
@@ -65,7 +65,7 @@ class AudioClassifier(nn.Module):
                 init.constant_(m.bias, 0)
                 
     def forward(self, x):
-        output = srlf.conv_layers(x)
+        output = self.conv_layers(x.unsqueeze(1))
         output = output.reshape(-1, 8192)
         output = self.linear(output).squeeze()
         return output

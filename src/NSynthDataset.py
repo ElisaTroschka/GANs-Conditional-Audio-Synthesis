@@ -36,7 +36,11 @@ class NSynthDataset(Dataset):
                  max_class_count=2500, 
                  cond_classes=None, 
                  pitched_z=False,
-                 z_size=1000
+                 label='composite',
+                 z_size=1000,
+                 return_pitch=False,
+                 p_enc=None,
+                 c_enc=None
                 ):
         
         super(NSynthDataset, self).__init__()
@@ -55,12 +59,16 @@ class NSynthDataset(Dataset):
         self.max_class_count = max_class_count
         self.cond_classes = cond_classes
         self.pitched_z = pitched_z
+        self.label = label
         self.z_size = z_size
+        self.p_enc = p_enc
+        self.c_enc = c_enc
+        self.return_pitch = return_pitch
 
         self.json = json.load(open(f'{self.data_path}/examples.json'))
         self._preprocess_dataset()
         self.fnames = self.annot.index.to_list()
-            
+        self._set_label_size()           
 
     def __len__(self):
         return len(self.fnames)
@@ -85,16 +93,29 @@ class NSynthDataset(Dataset):
         
         # constructing label
         instr_class = torch.tensor(self.annot.loc[self.fnames[i], 'instrument_class'])
-        
-        if self.pitched_z:
+        pitch = torch.tensor(self.annot.loc[self.fnames[i], 'pitch'])
+
+        if self.label == 'instrument':
             label = instr_class
+        elif self.label == 'pitch':
+            pitch_enc = torch.tensor(self.annot.loc[self.fnames[i], 'pitch_enc'])
+            label = pitch_enc
+        elif self.label == 'full':
+            pitch_enc = torch.tensor(self.annot.loc[self.fnames[i], 'pitch_enc'])
+            label = torch.cat((instr_class, pitch_enc))
+        else:
+            label = torch.cat((instr_class, pitch.unsqueeze(0)))
+            
+        # constructing z
+        if self.pitched_z:
             z = librosa.tone(midi_to_hz(self.get_pitch(i)), sr=self.sampling_rate, length=self.z_size).type(torch.float32)
         else:
-            pitch = torch.tensor(self.get_pitch(i))#.unsqueeze(0)
-            label = torch.cat((pitch, instr_class))
             z = 2 * torch.rand(self.z_size) - 1
-            
-        return torch.tensor(y), label, z
+        
+        if self.return_pitch:
+            return torch.tensor(y), label, z, self.get_pitch(i)
+        else:
+            return torch.tensor(y), label, z
     
 
     def _preprocess_dataset(self):
@@ -108,7 +129,7 @@ class NSynthDataset(Dataset):
 
         # Removing samples with pitch < 21 or > 108
         #to_keep = np.logical_and((21 < annot['pitch']), (annot['pitch'] < 108))
-        to_keep = np.logical_and((40 < annot['pitch']), (annot['pitch'] < 80))
+        to_keep = np.logical_and((40 <= annot['pitch']), (annot['pitch'] <= 80))
         annot = annot[to_keep]
 
         # Redefining instrument classes to include both source and family
@@ -117,20 +138,29 @@ class NSynthDataset(Dataset):
         # balancing the dataset
         annot = self._balance_data(annot)
         
-        # onehot encoding to be used as cond info
+        # instrument onehot encoding to be used as cond info
         if self.stage == 'train':
             self.cond_classes = np.array(sorted(annot['instrument_class_str'].unique())).reshape(1, -1).tolist()
-            
-        enc = OneHotEncoder(categories=self.cond_classes)
-        encoded_features = enc.fit_transform(annot[['instrument_class_str']]).toarray().astype(int).tolist()
+        if self.c_enc is None:
+            self.c_enc = OneHotEncoder(categories=self.cond_classes)
+        encoded_features = self.c_enc.fit_transform(annot[['instrument_class_str']]).toarray().astype(int).tolist()
         encoded_df = pd.DataFrame({'instrument_class':encoded_features}, index=annot.index)
         annot = pd.concat((annot, encoded_df), axis=1)
+        
+        # pitch onehot encoding
+        if self.label == 'pitch' or self.label == 'full':
+            if self.p_enc is None:
+                self.p_enc = OneHotEncoder(categories = [list(range(40, 81))])
+            encoded_features = self.p_enc.fit_transform(annot[['pitch']]).toarray().astype(int).tolist()
+            encoded_df = pd.DataFrame({'pitch_enc':encoded_features}, index=annot.index)
+            annot = pd.concat((annot, encoded_df), axis=1)
 
-        self.annot = annot
-        self.label_size = self.annot['instrument_class_str'].nunique()
-        if not self.pitched_z:
-            self.label_size += 1
+        self.annot = annot       
         self.y_size = self.sampling_rate * self.duration if not self.mel else 128
+        
+    def _set_label_size(self):
+        label = self.__getitem__(0)[1]
+        self.label_size = label.size()[0]
 
     
     def _balance_data(self, annot, seed=102):

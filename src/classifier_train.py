@@ -7,18 +7,21 @@ from tqdm import tqdm
 from src.classifier import MelClassifier, AudioClassifier
 
 
-def train_classifier(train_set, epochs=1000, batch_size=50, lr=1e-4, classes='none', save_epochs=25, pretr_epochs=0, save_dir=''):
+def train_classifier(train_set, epochs=1000, batch_size=50, lr=1e-4, save_epochs=25, pretr_epochs=0, save_dir=''):
     
     device = torch.device('cuda' if cuda.is_available() else 'cpu')
     print(f"Working on {device}")
-    if not train_set.pitched_z:
-        raise AttributeError('train_set.pitched_z must be set to True')
-    n_classes = train_set.label_size if classes == 'instrument' else 1
+    
+    n_classes = train_set.label_size
     
     if train_set.mel:
         classifier = MelClassifier(out_dim=n_classes).to(device)
     else:
         classifier = AudioClassifier(out_dim=n_classes).to(device)
+    
+    if pretr_epochs != 0:
+        print('Loading state dict...')
+        classifier.load_state_dict(torch.load(f'{save_dir}class_{lr}-{pretr_epochs}.pt'))
         
     trainloader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
     optim = torch.optim.Adam(classifier.parameters(), lr, betas=(0.5, 0.9))
@@ -37,7 +40,7 @@ def train_classifier(train_set, epochs=1000, batch_size=50, lr=1e-4, classes='no
             optim.step()
             
             loss_epoch += loss / batch_size
-            preds = (a == a.max(dim=0, keepdim=True).values).float()
+            preds = (y_pred == y_pred.max(dim=0, keepdim=True).values).float()
             correct_preds += torch.sum((preds * y_true))
         
         loss_epoch /= len(trainloader)

@@ -1,6 +1,7 @@
 import numpy as np
 import librosa
 from librosa.feature.inverse import mel_to_audio
+from librosa import hz_to_mel
 from IPython.display import Audio
 import torch
 import matplotlib.pyplot as plt
@@ -30,12 +31,12 @@ def estimate_pitch(audio, sr):
     """
     Applies pYIN pitch estimation to approximately compute the predominant pitch.
     """
-    f0 = librosa.yin(audio.numpy(), sr=sr, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'), frame_length=1024)
+    pitch = librosa.yin(np.array(audio), sr=sr, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'), frame_length=64)
     #pitch = f0[np.argmax(p)]
     #pitch = mode(f0, keepdims=False)[0]
-    pitch=np.mean(f0)
-    pitch = hz_to_midi(pitch)
-    return pitch
+    #pitch=np.mean(f0)
+    pitch = np.array([hz_to_midi(p) for p in pitch])
+    return np.median(pitch), pitch#mode(pitch, keepdims=False)[0], pitch
 
 
 def flip_random_elements(target_r, flip_prob, device):
@@ -77,31 +78,40 @@ def display_mel_sample(i, train_set, G):
     plt.show()
     
     
-def clean(y, sr):
+def clean(y, sr, f=np.array([2680, 2780])):
     
-    n_fft = 2048
-    hop_length = 512
+    n_fft = 1024
+    hop_length = 128
     noisy_stft = librosa.stft(np.array(y), n_fft=n_fft, hop_length=hop_length)
 
     # Estimate noise spectrum from silent portion of the audio
     # You might need to adjust the start and end frames based on your audio
-    start_frame = 50
-    end_frame = 100
-    noise_spectrum = np.mean(np.abs(noisy_stft[:, start_frame:end_frame]), axis=1)
+    #start_frame = 50
+    #end_frame = 100
+    #noise_spectrum = np.mean(np.abs(noisy_stft[:, start_frame:end_frame]), axis=1)
 
     # Apply spectral subtraction
-    alpha = 1.0  # A parameter to control the noise reduction
-    clean_stft = np.maximum(np.abs(noisy_stft) - alpha * noise_spectrum[:, np.newaxis], 0.0)
-    clean_stft = clean_stft * np.exp(1j * np.angle(noisy_stft))
+    #alpha = 1.0  # A parameter to control the noise reduction
+    #clean_stft = np.maximum(np.abs(noisy_stft) - alpha * noise_spectrum[:, np.newaxis], 0.0)
+    #clean_stft = clean_stft * np.exp(1j * np.angle(noisy_stft))
 
     # Inverse STFT to get cleaned audio
-    clean_audio = librosa.istft(clean_stft, hop_length=hop_length)
+    #clean_audio = librosa.istft(clean_stft, hop_length=hop_length)
 
 
-    #cutoff_freq = 8000  # Adjust this cutoff frequency as needed
-    #nyquist_freq = 0.5 * sr
-    #normal_cutoff = cutoff_freq / nyquist_freq
-    #normal_cutoff = np.clip(normal_cutoff, 0.0, 0.99)
-    #b, a = scipy.signal.butter(6, normal_cutoff, btype='low', analog=False)
-    #clean_audio = scipy.signal.lfilter(b, a, y)
+    cutoff_freq = f  # Adjust this cutoff frequency as needed
+    nyquist_freq = 0.5 * sr
+    normal_cutoff = cutoff_freq / nyquist_freq
+    normal_cutoff = np.clip(normal_cutoff, 0.0, 0.99)
+    b, a = scipy.signal.butter(6, normal_cutoff, btype='bandstop', analog=False)
+    clean_audio = scipy.signal.lfilter(b, a, y)
     return clean_audio
+
+
+def filter_mel(mel, fmin=2680, fmax=2780):
+    mel_freq_min = librosa.hz_to_mel(fmin)
+    mel_freq_max = librosa.hz_to_mel(fmax)
+
+    # Set values in the mel spectrogram to zero for the specified frequency range
+    mel[(mel_freq_min <= mel) & (mel <= mel_freq_max)] = mel.min()
+    return mel
