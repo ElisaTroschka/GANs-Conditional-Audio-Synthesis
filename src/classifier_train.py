@@ -13,19 +13,15 @@ def train_classifier(train_set, epochs=1000, batch_size=50, lr=1e-4, save_epochs
     print(f"Working on {device}")
     
     n_classes = train_set.label_size
-    
-    if train_set.mel:
-        classifier = MelClassifier(out_dim=n_classes).to(device)
-    else:
-        classifier = AudioClassifier(out_dim=n_classes).to(device)
+    classifier = AudioClassifier(out_dim=n_classes).to(device)
     
     if pretr_epochs != 0:
         print('Loading state dict...')
         classifier.load_state_dict(torch.load(f'{save_dir}class_{lr}-{pretr_epochs}.pt'))
-        
+    print(classifier) 
     trainloader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
     optim = torch.optim.Adam(classifier.parameters(), lr, betas=(0.5, 0.9))
-    criterion = nn.BCEWithLogitsLoss()
+    criterion = nn.BCELoss()
     
     loss_hist = []
     for epoch in range(epochs):
@@ -39,11 +35,13 @@ def train_classifier(train_set, epochs=1000, batch_size=50, lr=1e-4, save_epochs
             loss.backward()
             optim.step()
             
-            loss_epoch += loss / batch_size
-            preds = (y_pred == y_pred.max(dim=0, keepdim=True).values).float()
-            correct_preds += torch.sum((preds * y_true))
+            max_idx = torch.argmax(y_pred, dim=1)
+            loss_epoch += loss
+            preds = torch.zeros_like(y_pred)
+            preds[torch.arange(y_pred.shape[0]), max_idx] = 1
+            correct_preds += (preds * y_true).sum()
         
-        loss_epoch /= len(trainloader)
+        loss_epoch /= len(trainloader) * batch_size
         loss_hist.append(loss_epoch)
         train_acc = correct_preds / (len(trainloader) * batch_size)
         

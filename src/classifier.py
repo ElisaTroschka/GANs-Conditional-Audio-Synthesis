@@ -15,7 +15,6 @@ class MelClassifier(nn.Module):
             nn.Conv2d(256, 512, 5, 2, bias=True),
             nn.LeakyReLU(0.2),
             nn.Conv2d(512, 1024, 5, 2, bias=True),
-            nn.LeakyReLU(0.2)
         )
         self.fc = nn.Linear(1024, out_dim)
         self.apply(self.init_weights)
@@ -55,6 +54,7 @@ class AudioClassifier(nn.Module):
             nn.LeakyReLU(0.2)
         )
         self.linear = nn.Linear(8192, out_dim)
+        self.softmax = nn.Softmax(dim=1)
         self.apply(self.init_weights)
         
 
@@ -68,4 +68,5 @@ class AudioClassifier(nn.Module):
         output = self.conv_layers(x.unsqueeze(1))
         output = output.reshape(-1, 8192)
         output = self.linear(output).squeeze()
+        output = self.softmax(output)
         return output
