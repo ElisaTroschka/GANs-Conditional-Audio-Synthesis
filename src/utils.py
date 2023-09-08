@@ -63,15 +63,17 @@ def display_audio_sample(i, train_set, G):
     return Audio(s, rate=train_set.sampling_rate)
     
     
-def display_mel_sample(i, train_set, G):
+def display_mel_sample(i, train_set, G, db=False):
     w, l, z = train_set.__getitem__(i)
     G.eval()
     s = G.forward(z.unsqueeze(0).to(torch.device('cuda')), l.unsqueeze(0).to(torch.device('cuda')))
-    s.to(torch.device('cpu'))
     s = s.detach().cpu()
     
     plt.figure(figsize=(5, 3))
-    librosa.display.specshow(librosa.power_to_db(s, ref=np.max),  y_axis='mel', x_axis='time', cmap='magma')
+    if db:
+        librosa.display.specshow(np.array(s), y_axis='mel', x_axis='time', cmap='magma')
+    else:
+        librosa.display.specshow(librosa.power_to_db(s, ref=np.max),  y_axis='mel', x_axis='time', cmap='magma')
     plt.colorbar(format='%+2.0f dB')
     plt.title('Mel Spectrogram')
     plt.tight_layout()

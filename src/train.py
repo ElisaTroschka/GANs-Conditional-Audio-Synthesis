@@ -214,7 +214,7 @@ def train(train_set,
             print(get_output_str(epoch, epochs, loss_G_epoch, loss_D_epoch, train_acc))
         
         if model == 'SpecGAN':
-            display_mel_sample(42, train_set, G)
+            display_mel_sample(42, train_set, G, db=True)
         display(display_audio_sample(42, train_set, G))
 
         G_losses.append(loss_G_epoch)

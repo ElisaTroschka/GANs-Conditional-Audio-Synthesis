@@ -82,13 +82,19 @@ class NSynthDataset(Dataset):
         # Constructing mel spec
         if self.mel:
             y = librosa.feature.melspectrogram(y=y, sr=sr, n_fft=1024, hop_length=128, n_mels=128)
-            
-        # Normalize each frequency bin to have zero mean and unit variance
-        y = (y - np.mean(y)) / np.std(y)
-        # Clip to 3 standard deviations
-        y = np.clip(y, -3, 3)
-        # Rescale to [-1, 1]
-        y = (y / 3).clip(-1, 1)
+            y = librosa.power_to_db(y, ref=np.min)
+            y = (y - y.min()) / (y.max() - y.min())
+            y = 2 * y - 1
+            #y = (y - np.mean(y)) / np.std(y)
+        
+        else:
+            # Normalize each frequency bin to have zero mean and unit variance
+            y = (y - np.mean(y)) / np.std(y)
+            # Clip to 3 standard deviations
+            y = np.clip(y, -3, 3)
+            # Rescale to [-1, 1]
+            y = (y / 3).clip(-1, 1)
+        
 
         
         # constructing label

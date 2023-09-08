@@ -14,7 +14,6 @@ class SpecGANGenerator(nn.Module):
         self.in_ch = in_ch
         self.kernel_size = kernel_size
         
-        #self.avgpool = nn.AdaptiveMaxPool2d((128, 128))
         self.fc = nn.Linear(self.in_dim + self.cond_dim, 256 * 64)
         self.deconv = nn.Sequential(
             nn.ConvTranspose2d(1024, 512, self.kernel_size, 2, padding=2, output_padding=1, bias=True),
@@ -42,7 +41,6 @@ class SpecGANGenerator(nn.Module):
         output = torch.cat([x, cond], dim=1)
         output = self.fc(output).view(-1, 16 * 64, 4, 4)
         output = self.deconv(output)
-        #output = self.avgpool(output)
         output = output.squeeze()
         return output
 
@@ -56,6 +54,7 @@ class SpecGANDiscriminator(nn.Module):
         self.kernel_size = kernel_size
         self.phaseshuffle_rad = phaseshuffle_rad
         
+        #self.dropout = nn.Dropout(0.2)
         self.label_fc = nn.Linear(self.cond_dim, self.in_dim)
         self.lrelu = nn.LeakyReLU(0.2)
         self.conv = nn.Sequential(
@@ -82,6 +81,7 @@ class SpecGANDiscriminator(nn.Module):
         for layer in self.conv:
             output = layer(output)
             output = self.lrelu(output)
+            #output = self.dropout(output)
             output = self._apply_phase_shuffle(output, self.phaseshuffle_rad)
         output.squeeze_()
         output = self.fc(output)
