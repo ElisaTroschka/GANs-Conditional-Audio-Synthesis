@@ -3,13 +3,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch import nn, cuda, optim
 from tqdm import tqdm
-import librosa
-import numpy as np
-import matplotlib.pyplot as plt
-from librosa.feature.inverse import mel_to_audio
-from IPython.display import Audio
 from IPython.core.display import display
-
 
 from src.WaveGAN import WaveGANGenerator, WaveGANDiscriminator
 from src.SpecGAN import SpecGANGenerator, SpecGANDiscriminator
@@ -17,6 +11,15 @@ from src.utils import flip_random_elements, display_audio_sample, display_mel_sa
 
 
 def compute_gradient_penalty(D, real_samples, fake_samples, cond, device):
+    """
+    Computes gradient penalty for a training step
+    :param D: instance of WaveGANDiscriminator or SpecGANDiscriminator
+    :param real_samples: real data from train set
+    :param fake_samples: generator outputs
+    :param cond: conditioning labels
+    :param device: cpu or cuda
+    :return: gradient penalty
+    """
     if len(real_samples.shape) == 3:
         alpha = torch.rand(real_samples.size(0), 1, 1, device=device)
     else:
@@ -54,6 +57,25 @@ def train(train_set,
           pretr_epochs=0,
           lambda_gp=10
          ):
+    """
+    Training loop for WaveGAN or SpecGAN
+    :param train_set: train set
+    :param batch_size: batch size
+    :param D_lr: discriminator learning rate
+    :param G_lr: generator learning rate
+    :param epochs: epochs of training
+    :param z_size: latent vector size
+    :param d_updates: number of discriminator updates per epoch
+    :param g_updates: number of generator updates per epoch
+    :param flip_prob: probability of src.utils.flip_random_elements
+    :param val_set: validation set. Default: None
+    :param ph: phase shuffle radius
+    :param loss: loss function. One of `minimax` or `wasserstein`
+    :param save_epochs: number of epochs between checkpoints
+    :param save_dir: directory where to save checkpoints
+    :param pretr_epochs: number of epochs the models have been pretrained for
+    :param lambda_gp: lambda parameter of gradient penalty
+    """
     
     # Inferring model from data type
     model = 'SpecGAN' if train_set.mel else 'WaveGAN'
@@ -65,8 +87,6 @@ def train(train_set,
             for arg in ('batch_size', 'D_lr', 'G_lr', 'epochs', 'z_size', 'd_updates', 'g_updates', 'flip_prob', 'ph', 'loss', 'lambda_gp'):
                 f.write(f'{arg}: {locals()[arg]}\n')
         f.close()
-                
-                
 
     # Setting the device
     device = torch.device('cuda' if cuda.is_available() else 'cpu')
@@ -118,10 +138,10 @@ def train(train_set,
     
     G_losses = []
     D_losses = []
-    #torch.cuda.empty_cache()
-    
+
     # Train loop
     for epoch in range(epochs):
+        # print memory info for monitoring
         if epoch % verbose == 0:
             t = torch.cuda.get_device_properties(0).total_memory
             r = torch.cuda.memory_reserved(0)
@@ -129,7 +149,6 @@ def train(train_set,
             f = r-a  # free inside reserved
             print(f'\033[94mtotal_memory: {t}, available_memory: {f}\033[0m')
         
-                    
         loss_G_batch = []
         loss_D_batch = []
         TP = 0
@@ -171,9 +190,6 @@ def train(train_set,
                 loss_D.backward()
                 D_optim.step()
                 
-                #for p in D.parameters():
-                #    p.data.clamp_(-0.01, 0.01)
-                
                 # TP and TN of the last iteration to compute train set accuracy
                 if i == d_updates - 1:
                     TP += torch.round(F.sigmoid(real)).sum()
@@ -199,14 +215,13 @@ def train(train_set,
 
             loss_G_batch.append(loss_G.item())
             loss_D_batch.append(loss_D.item())
-        
-        
+
         train_acc = (TP + TN) / (2 * trainloader.__len__() * batch_size)
         
         #G_scheduler.step()
         #D_scheduler.step()
         
-        # Output
+        # Outputs for monitoring
         loss_G_epoch = torch.mean(torch.tensor(loss_G_batch)).item()
         loss_D_epoch = torch.mean(torch.tensor(loss_D_batch)).item()
 
@@ -219,7 +234,8 @@ def train(train_set,
 
         G_losses.append(loss_G_epoch)
         D_losses.append(loss_D_epoch)
-        
+
+        # Saving checkpoint
         if epoch % save_epochs == 0 or epoch == epochs-1:
             torch.save(G.state_dict(), f'{save_dir}G_{G_lr}-{g_updates}-{epoch + pretr_epochs}.pt')
             torch.save(D.state_dict(), f'{save_dir}D_{D_lr}-{d_updates}-{epoch + pretr_epochs}.pt')
@@ -233,6 +249,9 @@ def train(train_set,
 
 
 def get_output_str(epoch, epochs, g_loss, d_loss, train_acc, val_acc=None):
+    """
+    Formats the output string to display after each epoch
+    """
     if val_acc:
         return f'\n\033[1mEPOCH {epoch + 1}/{epochs}:\033[0m Generator loss: {g_loss:.1f}, Discriminator loss: {d_loss:.1f}, Train accuracy: {train_acc:.5f}, Val accuracy: {val_acc:.5f}'
     else:

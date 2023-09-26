@@ -3,11 +3,19 @@ import torch.nn as nn
 import torch.nn.init as init
 
 
+def init_weights(m):
+    """
+    Xavier weight initialization
+    """
+    if isinstance(m, (nn.Conv1d, nn.ConvTranspose1d, nn.Linear)):
+        init.xavier_normal_(m.weight)
+        if m.bias is not None:
+            init.constant_(m.bias, 0)
+
+
 class WaveGANGenerator(nn.Module):
     """
-    *WaveGAN Generator*
-    
-    
+    WaveGAN Generator
     """
     def __init__(self, in_dim, cond_dim, out_dim, sr, duration, in_ch=1, kernel_size=25):
         super(WaveGANGenerator, self).__init__()
@@ -22,7 +30,6 @@ class WaveGANGenerator(nn.Module):
         if duration <= 0:
             raise ValueError("Duration must be greater than 0.")
         self.fc = nn.Linear(self.in_dim + self.cond_dim, 1024*16)
-        #self.avgpool = nn.AdaptiveAvgPool1d(self.slice_len)
         self.deconv = nn.Sequential(
             nn.ConvTranspose1d(1024, 512, kernel_size, stride=4, padding=11, output_padding=1, bias=True),
             nn.ReLU(),
@@ -35,21 +42,12 @@ class WaveGANGenerator(nn.Module):
             nn.ConvTranspose1d(64, in_ch, kernel_size, stride=4, padding=11, output_padding=1),
             nn.Tanh()
         )
-        self.apply(self.init_weights)
-        
-    
-    def init_weights(self, m):
-        if isinstance(m, (nn.Conv1d, nn.ConvTranspose1d, nn.Linear)):
-            init.xavier_normal_(m.weight)
-            if m.bias is not None:
-                init.constant_(m.bias, 0)
-
+        self.apply(init_weights)
 
     def forward(self, x, cond):
         output = torch.cat([x, cond], dim=1)
         output = self.fc(output).view(-1, 1024, 16)
         output = self.deconv(output)
-        #output = self.avgpool(output)
         output = output.squeeze()
         output = self.adjust_output_length(output)
         return output
@@ -61,6 +59,9 @@ class WaveGANGenerator(nn.Module):
 
 
 class WaveGANDiscriminator(nn.Module):
+    """
+    WaveGAN Discriminator
+    """
     def __init__(self, in_dim, cond_dim, kernel_len=25, in_ch=1, phaseshuffle_rad=0, out=1):
         super(WaveGANDiscriminator, self).__init__()
 
@@ -77,15 +78,7 @@ class WaveGANDiscriminator(nn.Module):
 
         self.conv_layers = nn.Sequential(*layers)
         self.linear = nn.Linear(8192, out)
-        self.apply(self.init_weights)
-        
-
-    def init_weights(self, m):
-        if isinstance(m, (nn.Conv1d, nn.Linear)):
-            init.xavier_normal_(m.weight)
-            if m.bias is not None:
-                init.constant_(m.bias, 0)
-                
+        self.apply(init_weights)
 
     def forward(self, x, cond):
         output = torch.cat([x, cond], dim=1).unsqueeze(1)
@@ -97,9 +90,15 @@ class WaveGANDiscriminator(nn.Module):
         output = output.reshape(-1, 8192)
         output = self.linear(output).squeeze()
         return output
-    
 
     def _apply_phase_shuffle(self, x, rad, pad_type='reflect'):
+        """
+        Phase shuffle
+        :param x: layer output
+        :param rad: phase shuffle radius
+        :param pad_type: padding type. Default: 'reflect'
+        :return: layer output after phase shuffle
+        """
         if self.phaseshuffle_rad > 0:
             b, channels, x_len = x.shape
             phase = torch.randint(-rad, rad + 1, (1,))

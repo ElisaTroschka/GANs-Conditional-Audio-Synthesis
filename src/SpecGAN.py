@@ -3,17 +3,36 @@ import torch.nn as nn
 import torch.nn.init as init
 
 
+def init_weights(m):
+    """
+    Xavier weights initialization
+    """
+    if isinstance(m, (nn.Conv1d, nn.ConvTranspose1d, nn.Linear)):
+        init.xavier_normal_(m.weight)
+        if m.bias is not None:
+            init.constant_(m.bias, 0)
+
 
 class SpecGANGenerator(nn.Module):
-    
+    """
+    SpecGAN generator
+    """
     def __init__(self, in_dim, cond_dim, out_dim, in_ch=1, kernel_size=5):
+        """
+        SpecGAN generator initialization
+        :param in_dim: dimension of input images
+        :param cond_dim: size of conditioning input
+        :param out_dim: output dimension
+        :param in_ch: number of input channels
+        :param kernel_size: size of deconvolution filters
+        """
         super(SpecGANGenerator, self).__init__()
         self.in_dim = in_dim
         self.cond_dim = cond_dim
         self.out_dim = out_dim
         self.in_ch = in_ch
         self.kernel_size = kernel_size
-        
+
         self.fc = nn.Linear(self.in_dim + self.cond_dim, 256 * 64)
         self.deconv = nn.Sequential(
             nn.ConvTranspose2d(1024, 512, self.kernel_size, 2, padding=2, output_padding=1, bias=True),
@@ -27,16 +46,8 @@ class SpecGANGenerator(nn.Module):
             nn.ConvTranspose2d(64, self.in_ch, self.kernel_size, 2, padding=2, output_padding=1, bias=True),
             nn.Tanh()
         )
-        self.apply(self.init_weights)
-        
-    
-    def init_weights(self, m):
-        if isinstance(m, (nn.Conv1d, nn.ConvTranspose1d, nn.Linear)):
-            init.xavier_normal_(m.weight)
-            if m.bias is not None:
-                init.constant_(m.bias, 0)
-                
-        
+        self.apply(init_weights)
+
     def forward(self, x, cond):
         output = torch.cat([x, cond], dim=1)
         output = self.fc(output).view(-1, 16 * 64, 4, 4)
@@ -44,17 +55,27 @@ class SpecGANGenerator(nn.Module):
         output = output.squeeze()
         return output
 
-        
+
 class SpecGANDiscriminator(nn.Module):
-    
+    """
+    SpecGAN discriminator
+    """
     def __init__(self, in_dim, cond_dim, in_ch=1, kernel_size=5, phaseshuffle_rad=0, out=1):
+        """
+        SpecGAN discriminator initialization
+        :param in_dim: dimension of input image
+        :param cond_dim: conditioning input size
+        :param in_ch: number of input channels
+        :param kernel_size: size of convolutional filters
+        :param phaseshuffle_rad: phase shuffle radius
+        :param out: number of output channels
+        """
         super(SpecGANDiscriminator, self).__init__()
         self.in_dim = in_dim
         self.cond_dim = cond_dim
         self.kernel_size = kernel_size
         self.phaseshuffle_rad = phaseshuffle_rad
-        
-        #self.dropout = nn.Dropout(0.2)
+
         self.label_fc = nn.Linear(self.cond_dim, self.in_dim)
         self.lrelu = nn.LeakyReLU(0.2)
         self.conv = nn.Sequential(
@@ -65,30 +86,27 @@ class SpecGANDiscriminator(nn.Module):
             nn.Conv2d(512, 1024, 5, 2, bias=True)
         )
         self.fc = nn.Linear(1024, out)
-        self.apply(self.init_weights)
-        
+        self.apply(init_weights)
 
-    def init_weights(self, m):
-        if isinstance(m, (nn.Conv1d, nn.Linear)):
-            init.xavier_normal_(m.weight)
-            if m.bias is not None:
-                init.constant_(m.bias, 0)
-                
-    
     def forward(self, x, cond):
         cond = self.label_fc(cond.type(torch.float32))
         output = torch.cat((x, cond.unsqueeze(-1)), -1).unsqueeze(1)
         for layer in self.conv:
             output = layer(output)
             output = self.lrelu(output)
-            #output = self.dropout(output)
             output = self._apply_phase_shuffle(output, self.phaseshuffle_rad)
         output.squeeze_()
         output = self.fc(output)
         return output
-            
-            
+
     def _apply_phase_shuffle(self, x, rad, pad_type='reflect'):
+        """
+        Phase shuffle
+        :param x: layer output
+        :param rad: phase shuffle radius
+        :param pad_type: padding type. Default: 'reflect'
+        :return: layer output after phase shuffle
+        """
         if self.phaseshuffle_rad > 0:
             b, channels, x_len = x.shape
             phase = torch.randint(-rad, rad + 1, (1,))

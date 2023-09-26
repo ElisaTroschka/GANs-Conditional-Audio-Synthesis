@@ -1,42 +1,23 @@
-import torch
 import torch.nn as nn
 import torch.nn.init as init
 
-class MelClassifier(nn.Module):
-    def __init__(self, out_dim=1):
-        super(MelClassifier, self).__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(1, 64, 5, 2, bias=True),
-            nn.LeakyReLU(0.2),
-            nn.Conv2d(64, 128, 5, 2, bias=True),
-            nn.LeakyReLU(0.2),
-            nn.Conv2d(128, 256, 5, 2, bias=True),
-            nn.LeakyReLU(0.2),
-            nn.Conv2d(256, 512, 5, 2, bias=True),
-            nn.LeakyReLU(0.2),
-            nn.Conv2d(512, 1024, 5, 2, bias=True),
-        )
-        self.fc = nn.Linear(1024, out_dim)
-        self.apply(self.init_weights)
+
+def init_weights(m):
+    if isinstance(m, (nn.Conv1d, nn.Linear)):
+        init.xavier_normal_(m.weight)
+        if m.bias is not None:
+            init.constant_(m.bias, 0)
 
 
-    def init_weights(self, m):
-        if isinstance(m, (nn.Conv1d, nn.Linear)):
-            init.xavier_normal_(m.weight)
-            if m.bias is not None:
-                init.constant_(m.bias, 0)
-
-    def forward(self, x):
-        output = x.view(-1, 1, 128, 128)
-        output = self.conv(output)
-        output.squeeze_()
-        output = self.fc(output)
-        return output
-    
-    
-    
 class AudioClassifier(nn.Module):
+    """
+    Audio classifier used for computation on IS
+    """
     def __init__(self, out_dim=1):
+        """
+        Audio classifier initialization
+        :param out_dim: number of output classes
+        """
         super(AudioClassifier, self).__init__()
 
         self.conv_layers = nn.Sequential(
@@ -55,15 +36,8 @@ class AudioClassifier(nn.Module):
         )
         self.linear = nn.Linear(8192, out_dim)
         self.softmax = nn.Softmax(dim=1)
-        self.apply(self.init_weights)
-        
+        self.apply(init_weights)
 
-    def init_weights(self, m):
-        if isinstance(m, (nn.Conv1d, nn.Linear)):
-            init.xavier_normal_(m.weight)
-            if m.bias is not None:
-                init.constant_(m.bias, 0)
-                
     def forward(self, x):
         output = self.conv_layers(x.unsqueeze(1))
         output = output.reshape(-1, 8192)
