@@ -1,9 +1,10 @@
-import numpy as np
 import librosa
-from librosa.feature.inverse import mel_to_audio
-from IPython.display import Audio
-import torch
 import matplotlib.pyplot as plt
+import torch
+from IPython.display import Audio
+from librosa.feature.inverse import mel_to_audio
+from numpy import median, array, max, log2
+
 
 def hz_to_midi(f):
     """
@@ -11,7 +12,7 @@ def hz_to_midi(f):
     """
     midi_ref_freq = 440.0
     midi_ref_note = 69
-    return 12 * np.log2(f / midi_ref_freq) + midi_ref_note
+    return 12 * log2(f / midi_ref_freq) + midi_ref_note
 
 
 def midi_to_hz(m):
@@ -27,9 +28,9 @@ def estimate_pitch(audio, sr):
     """
     Computes the predominant pitch by applying YIN frequency estimator.
     """
-    pitch = librosa.yin(np.array(audio), sr=sr, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'), frame_length=64)
-    pitch = np.array([hz_to_midi(p) for p in pitch])
-    return np.median(pitch), pitch
+    pitch = librosa.yin(array(audio), sr=sr, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'), frame_length=64)
+    pitch = array([hz_to_midi(p) for p in pitch])
+    return median(pitch), pitch
 
 
 def flip_random_elements(target_r, flip_prob, device):
@@ -57,7 +58,7 @@ def display_audio_sample(i, train_set, G):
     s.to(torch.device('cpu'))
     s = s.detach().cpu()
     if train_set.mel:
-        s = mel_to_audio(np.array(s), sr=train_set.sampling_rate, n_fft=1024, hop_length=128)
+        s = mel_to_audio(array(s), sr=train_set.sampling_rate, n_fft=1024, hop_length=128)
     return Audio(s, rate=train_set.sampling_rate)
     
     
@@ -77,9 +78,9 @@ def display_mel_sample(i, train_set, G, db=False):
     
     plt.figure(figsize=(5, 3))
     if db:
-        librosa.display.specshow(np.array(s), y_axis='mel', x_axis='time', cmap='magma')
+        librosa.display.specshow(array(s), y_axis='mel', x_axis='time', cmap='magma')
     else:
-        librosa.display.specshow(librosa.power_to_db(s, ref=np.max),  y_axis='mel', x_axis='time', cmap='magma')
+        librosa.display.specshow(librosa.power_to_db(s, ref=max), y_axis='mel', x_axis='time', cmap='magma')
     plt.colorbar(format='%+2.0f dB')
     plt.title('Mel Spectrogram')
     plt.tight_layout()

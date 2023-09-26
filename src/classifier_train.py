@@ -1,6 +1,6 @@
 import torch
-from torch.utils.data import DataLoader
 from torch import nn, cuda
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.classifier import AudioClassifier

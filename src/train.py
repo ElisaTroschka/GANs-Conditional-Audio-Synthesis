@@ -1,12 +1,12 @@
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
-from torch import nn, cuda, optim
-from tqdm import tqdm
 from IPython.core.display import display
+from torch import nn, cuda, optim
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
-from src.WaveGAN import WaveGANGenerator, WaveGANDiscriminator
 from src.SpecGAN import SpecGANGenerator, SpecGANDiscriminator
+from src.WaveGAN import WaveGANGenerator, WaveGANDiscriminator
 from src.utils import flip_random_elements, display_audio_sample, display_mel_sample
 
 
