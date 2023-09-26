@@ -30,7 +30,7 @@ class NSynthDataset(Dataset):
                  data_path='data/', 
                  stage='train', 
                  mel=False, 
-                 sampling_rate=8192, 
+                 sampling_rate=8191, 
                  duration=2, 
                  min_class_count=2000, 
                  max_class_count=2500, 

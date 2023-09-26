@@ -85,22 +85,6 @@ def clean(y, sr, f=np.array([2680, 2780])):
     n_fft = 1024
     hop_length = 128
     noisy_stft = librosa.stft(np.array(y), n_fft=n_fft, hop_length=hop_length)
-
-    # Estimate noise spectrum from silent portion of the audio
-    # You might need to adjust the start and end frames based on your audio
-    #start_frame = 50
-    #end_frame = 100
-    #noise_spectrum = np.mean(np.abs(noisy_stft[:, start_frame:end_frame]), axis=1)
-
-    # Apply spectral subtraction
-    #alpha = 1.0  # A parameter to control the noise reduction
-    #clean_stft = np.maximum(np.abs(noisy_stft) - alpha * noise_spectrum[:, np.newaxis], 0.0)
-    #clean_stft = clean_stft * np.exp(1j * np.angle(noisy_stft))
-
-    # Inverse STFT to get cleaned audio
-    #clean_audio = librosa.istft(clean_stft, hop_length=hop_length)
-
-
     cutoff_freq = f  # Adjust this cutoff frequency as needed
     nyquist_freq = 0.5 * sr
     normal_cutoff = cutoff_freq / nyquist_freq
